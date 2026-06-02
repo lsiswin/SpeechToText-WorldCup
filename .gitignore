@@ -1,0 +1,30 @@
+# ==========================================
+# 1. Backend (ASP.NET Core C#)
+# ==========================================
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.sln.docstates
+# Ignore local development configurations that contain keys
+**/appsettings.local.json
+
+# ==========================================
+# 2. Frontend (Node.js / Vue / Vite)
+# ==========================================
+**/node_modules/
+**/dist/
+.DS_Store
+*.local
+.env.local
+.env.*.local
+
+# ==========================================
+# 3. OS and Editors
+# ==========================================
+.idea/
+.vscode/
+*.swp
+*.thumbs
+Thumbs.db
