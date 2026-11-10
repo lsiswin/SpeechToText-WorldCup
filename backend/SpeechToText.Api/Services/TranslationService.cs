@@ -28,7 +28,7 @@ namespace SpeechToText.Api.Services
             var provider = _configuration["Translation:Provider"] ?? "GoogleFree";
             var apiKey = _configuration["Translation:ApiKey"];
 
-            if (provider.Equals("DeepSeek", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey))
+            if (provider.Equals("DeepSeek", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey) && !apiKey.Equals("YOUR_DEEPSEEK_API_KEY", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {

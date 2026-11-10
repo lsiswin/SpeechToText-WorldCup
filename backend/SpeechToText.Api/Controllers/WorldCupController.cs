@@ -33,9 +33,9 @@ namespace SpeechToText.Api.Controllers
             var baseUrl = _configuration["Translation:BaseUrl"] ?? "https://api.deepseek.com";
             var model = _configuration["Translation:Model"] ?? "deepseek-chat";
 
-            if (string.IsNullOrWhiteSpace(apiKey))
+            if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Equals("YOUR_DEEPSEEK_API_KEY", StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest("DeepSeek API Key is not configured. Please add it to appsettings.json.");
+                return BadRequest("DeepSeek API Key is not configured. Please add your real key to appsettings.local.json (or appsettings.json).");
             }
 
             if (baseUrl.EndsWith("/"))

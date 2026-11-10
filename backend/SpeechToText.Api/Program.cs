@@ -52,6 +52,7 @@ app.MapControllers();
 // Ensure folders are created and FFmpeg is ready asynchronously when app starts
 var audioConverter = app.Services.GetRequiredService<IAudioConverter>();
 var transcriptionService = app.Services.GetRequiredService<ITranscriptionService>();
+var youtubeService = app.Services.GetRequiredService<IYouTubeService>();
 
 // Warm up resources in a background task
 _ = Task.Run(async () =>
@@ -60,6 +61,7 @@ _ = Task.Run(async () =>
     {
         Console.WriteLine("Pre-initializing services on startup...");
         await audioConverter.EnsureFFmpegAsync();
+        await youtubeService.EnsureYtDlpAsync();
         await transcriptionService.EnsureModelDownloadedAsync("base"); // Warm up default base model
         Console.WriteLine("Startup services initialization complete.");
     }

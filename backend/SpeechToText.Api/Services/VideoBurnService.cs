@@ -138,7 +138,9 @@ namespace SpeechToText.Api.Services
                     {
                         throw new FileNotFoundException("未在服务器缓存中找到上传的视频文件。", inputVideoPath);
                     }
-                    title = Path.GetFileNameWithoutExtension(inputVideoPath);
+                    title = !string.IsNullOrWhiteSpace(request.Title)
+                        ? request.Title
+                        : Path.GetFileNameWithoutExtension(inputVideoPath);
                 }
 
                 // ==========================================
@@ -187,11 +189,8 @@ namespace SpeechToText.Api.Services
                 await _audioConverter.EnsureFFmpegAsync();
                 await RunFFmpegBurnInAsync(inputVideoPath, localAssFilename, outputVideoPath);
 
-                // Clean up source downloaded video if online URL to save space
-                if (isOnline)
-                {
-                    try { if (File.Exists(inputVideoPath)) File.Delete(inputVideoPath); } catch {}
-                }
+                // Clean up source downloaded/uploaded video file to save disk space
+                try { if (File.Exists(inputVideoPath)) File.Delete(inputVideoPath); } catch {}
 
                 tracker.CompleteTask(taskId, outputVideoPath, $"{title}_字幕版");
             }
@@ -331,6 +330,7 @@ namespace SpeechToText.Api.Services
             {
                 FileName = ffmpeg,
                 Arguments = arguments,
+                WorkingDirectory = AppContext.BaseDirectory,
                 RedirectStandardOutput = false,
                 RedirectStandardError = true,
                 UseShellExecute = false,

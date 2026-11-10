@@ -36,7 +36,7 @@
 ## 🛠️ 技术栈
 
 * **前端**：`Vue 3` + `Vite` + `Vanilla CSS` + `HTML5 Canvas` (CORS 异步处理)
-* **后端**：`ASP.NET Core 8.0` + `Whisper.net` + `YoutubeExplode (v6.6.0)` + `Open-XML (Word)` + `FFmpeg` 自动部署器
+* **后端**：`ASP.NET Core 8.0` + `Whisper.net` + `yt-dlp` + `Open-XML (Word)` + `FFmpeg` 自动部署器
 
 ---
 

@@ -196,7 +196,7 @@
             <!-- Online Video Info Card -->
             <div class="youtube-author-card" :style="{ borderColor: onlineStt.youtubeMetadata.platform === 'bilibili' ? 'rgba(251, 114, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', background: onlineStt.youtubeMetadata.platform === 'bilibili' ? 'rgba(251, 114, 153, 0.04)' : 'rgba(239, 68, 68, 0.04)' }">
               <div class="avatar-glow-ring" v-if="onlineStt.youtubeMetadata.avatarUrl" :style="{ background: onlineStt.youtubeMetadata.platform === 'bilibili' ? 'linear-gradient(135deg, #fb7299 0%, #ff8e9b 100%)' : 'linear-gradient(135deg, #ef4444 0%, #f43f5e 100%)' }">
-                <img :src="onlineStt.youtubeMetadata.avatarUrl" class="author-avatar" alt="Creator Avatar" referrerpolicy="no-referrer" />
+                <img :src="getProxiedImageUrl(onlineStt.youtubeMetadata.avatarUrl)" class="author-avatar" alt="Creator Avatar" referrerpolicy="no-referrer" />
               </div>
               <div class="video-info-block">
                 <span class="video-title-label" :title="onlineStt.youtubeMetadata.title">{{ onlineStt.youtubeMetadata.title }}</span>
@@ -497,6 +497,11 @@ const onlineStt = ref({
 });
 
 const onlineMediaPlayer = ref(null);
+
+const getProxiedImageUrl = (url) => {
+  if (!url) return '';
+  return `/api/transcription/online/image-proxy?url=${encodeURIComponent(url)}`;
+};
 
 const onOnlineFileCleared = () => {
   onlineStt.value.serverAudioUrl = '';

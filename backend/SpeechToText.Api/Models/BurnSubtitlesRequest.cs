@@ -3,6 +3,7 @@ namespace SpeechToText.Api.Models
     public class BurnSubtitlesRequest
     {
         public string VideoUrl { get; set; } = string.Empty;
+        public string? Title { get; set; }
         public string ModelType { get; set; } = "base";
         public bool TranslateToChinese { get; set; } = false;
         public int FontSize { get; set; } = 20;

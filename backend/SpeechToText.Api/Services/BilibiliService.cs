@@ -101,9 +101,12 @@ namespace SpeechToText.Api.Services
             var author = owner.GetProperty("name").GetString() ?? "未知UP主";
             var face = owner.GetProperty("face").GetString() ?? "";
 
-            // B站图片链接通常是 http，如果是，建议使用 https
-            if (pic.StartsWith("http://")) pic = "https://" + pic.Substring(7);
-            if (face.StartsWith("http://")) face = "https://" + face.Substring(7);
+            // B站图片链接通常是 http 或 //，规范为 https
+            if (pic.StartsWith("//")) pic = "https:" + pic;
+            else if (pic.StartsWith("http://")) pic = "https://" + pic.Substring(7);
+
+            if (face.StartsWith("//")) face = "https:" + face;
+            else if (face.StartsWith("http://")) face = "https://" + face.Substring(7);
 
             return new OnlineVideoInfo
             {
@@ -150,7 +153,8 @@ namespace SpeechToText.Api.Services
             var avatarUrl = owner.GetProperty("face").GetString() ?? "";
             var actualBvid = infoData.GetProperty("bvid").GetString() ?? bvid ?? "";
 
-            if (avatarUrl.StartsWith("http://")) avatarUrl = "https://" + avatarUrl.Substring(7);
+            if (avatarUrl.StartsWith("//")) avatarUrl = "https:" + avatarUrl;
+            else if (avatarUrl.StartsWith("http://")) avatarUrl = "https://" + avatarUrl.Substring(7);
 
             // 2. Get PlayURL
             var playUrlApi = $"https://api.bilibili.com/x/player/playurl?bvid={actualBvid}&cid={cid}&fnval=16";
@@ -198,10 +202,18 @@ namespace SpeechToText.Api.Services
             return (tempAudioPath, title, avatarUrl);
         }
 
-        public async Task DownloadVideoFileAsync(string videoUrl, string quality, string taskId, IYouTubeDownloadTracker tracker)
+        public async Task DownloadVideoFileAsync(
+            string videoUrl, 
+            string quality, 
+            string taskId, 
+            IYouTubeDownloadTracker tracker, 
+            string downloadType = "video", 
+            string audioFormat = "mp3", 
+            string videoFormat = "mp4")
         {
             try
             {
+                var isAudio = downloadType.Equals("audio", StringComparison.OrdinalIgnoreCase);
                 tracker.UpdateProgress(taskId, 5, "正在解析 B站 视频信息与播放链接...");
                 var resolvedUrl = await ResolveUrlAsync(videoUrl);
                 var (bvid, aid) = ExtractBvOrAid(resolvedUrl);
@@ -251,18 +263,69 @@ namespace SpeechToText.Api.Services
                 var videoArray = dash.GetProperty("video");
                 var audioArray = dash.GetProperty("audio");
 
-                if (videoArray.GetArrayLength() == 0 || audioArray.GetArrayLength() == 0)
+                if (audioArray.GetArrayLength() == 0)
                 {
-                    throw new InvalidOperationException("未找到可用的视频或音频流轨道。");
+                    throw new InvalidOperationException("未找到可用的音频流轨道。");
                 }
 
-                // 3. Find video URL based on requested quality
+                var audioStreamUrl = audioArray[0].GetProperty("baseUrl").GetString();
+                if (string.IsNullOrEmpty(audioStreamUrl))
+                {
+                    throw new InvalidOperationException("获取到的音频流链接为空。");
+                }
+
+                var uploadsFolder = Path.Combine(Path.GetTempPath(), "SpeechToTextUploads");
+                if (!Directory.Exists(uploadsFolder))
+                {
+                    Directory.CreateDirectory(uploadsFolder);
+                }
+
+                if (isAudio)
+                {
+                    // Audio only download
+                    var targetExt = audioFormat.ToLower();
+                    if (targetExt != "mp3" && targetExt != "m4a" && targetExt != "wav" && targetExt != "flac")
+                    {
+                        targetExt = "mp3";
+                    }
+
+                    tracker.UpdateProgress(taskId, 15, $"开始下载 B站 音频轨并转为 {targetExt.ToUpper()}...");
+                    var tempAudioFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.m4a");
+                    await DownloadStreamWithProgressAsync(audioStreamUrl, tempAudioFile, p =>
+                    {
+                        tracker.UpdateProgress(taskId, 15 + (p * 75), $"正在抓取音频轨 ({Math.Round(p * 100)}%)...");
+                    });
+
+                    string finalAudioFile;
+                    if (targetExt == "m4a")
+                    {
+                        finalAudioFile = tempAudioFile;
+                    }
+                    else
+                    {
+                        tracker.UpdateProgress(taskId, 92, $"调用 FFmpeg 转码为高品质 {targetExt.ToUpper()} 音频...");
+                        await _audioConverter.EnsureFFmpegAsync();
+                        finalAudioFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.{targetExt}");
+                        await RunFFmpegConvertAudioAsync(tempAudioFile, finalAudioFile);
+                        try { if (File.Exists(tempAudioFile)) File.Delete(tempAudioFile); } catch {}
+                    }
+
+                    tracker.CompleteTask(taskId, finalAudioFile, title);
+                    return;
+                }
+
+                // Video download
+                if (videoArray.GetArrayLength() == 0)
+                {
+                    throw new InvalidOperationException("未找到可用的视频流轨道。");
+                }
+
                 string? videoStreamUrl = null;
                 string streamQualityLabel = "默认清晰度";
 
-                if (quality.ToLower() == "1080p")
+                var qLower = quality.ToLower();
+                if (qLower == "1080p" || qLower == "best")
                 {
-                    // Search for quality ID 80
                     foreach (var vItem in videoArray.EnumerateArray())
                     {
                         var id = vItem.GetProperty("id").GetInt32();
@@ -274,9 +337,8 @@ namespace SpeechToText.Api.Services
                         }
                     }
                 }
-                else if (quality.ToLower() == "720p")
+                else if (qLower == "720p")
                 {
-                    // Search for quality ID 64
                     foreach (var vItem in videoArray.EnumerateArray())
                     {
                         var id = vItem.GetProperty("id").GetInt32();
@@ -284,6 +346,19 @@ namespace SpeechToText.Api.Services
                         {
                             videoStreamUrl = vItem.GetProperty("baseUrl").GetString();
                             streamQualityLabel = "720P 标清";
+                            break;
+                        }
+                    }
+                }
+                else if (qLower == "480p")
+                {
+                    foreach (var vItem in videoArray.EnumerateArray())
+                    {
+                        var id = vItem.GetProperty("id").GetInt32();
+                        if (id == 32)
+                        {
+                            videoStreamUrl = vItem.GetProperty("baseUrl").GetString();
+                            streamQualityLabel = "480P 清晰";
                             break;
                         }
                     }
@@ -304,18 +379,15 @@ namespace SpeechToText.Api.Services
                     };
                 }
 
-                var audioStreamUrl = audioArray[0].GetProperty("baseUrl").GetString();
-
-                if (string.IsNullOrEmpty(videoStreamUrl) || string.IsNullOrEmpty(audioStreamUrl))
+                if (string.IsNullOrEmpty(videoStreamUrl))
                 {
-                    throw new InvalidOperationException("获取到的音视频流链接为空。");
+                    throw new InvalidOperationException("获取到的视频流链接为空。");
                 }
 
-                // 4. Download video (10% -> 70%)
-                var uploadsFolder = Path.Combine(Path.GetTempPath(), "SpeechToTextUploads");
+                var targetVideoExt = videoFormat.ToLower() == "mkv" ? "mkv" : "mp4";
                 var tempVideoFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.mp4");
-                var tempAudioFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.m4a");
-                var mergedOutputFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.mp4");
+                var tempAudioFileForMerge = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.m4a");
+                var mergedOutputFile = Path.Combine(uploadsFolder, $"{Guid.NewGuid()}.{targetVideoExt}");
 
                 tracker.UpdateProgress(taskId, 10, $"开始下载视频轨 ({streamQualityLabel})...");
                 await DownloadStreamWithProgressAsync(videoStreamUrl, tempVideoFile, p =>
@@ -323,23 +395,20 @@ namespace SpeechToText.Api.Services
                     tracker.UpdateProgress(taskId, 10 + (p * 60), $"正在下载视频轨 ({Math.Round(p * 100)}%)...");
                 });
 
-                // 5. Download audio (70% -> 90%)
                 tracker.UpdateProgress(taskId, 70, "视频轨下载完成，开始下载音频轨...");
-                await DownloadStreamWithProgressAsync(audioStreamUrl, tempAudioFile, p =>
+                await DownloadStreamWithProgressAsync(audioStreamUrl, tempAudioFileForMerge, p =>
                 {
                     tracker.UpdateProgress(taskId, 70 + (p * 20), $"正在下载音频轨 ({Math.Round(p * 100)}%)...");
                 });
 
-                // 6. Merge with FFmpeg (90% -> 98%)
-                tracker.UpdateProgress(taskId, 90, "音视频轨道下载完毕，正在调用 FFmpeg 进行高速封包合并...");
+                tracker.UpdateProgress(taskId, 90, $"音视频轨道下载完毕，正在调用 FFmpeg 进行封装为 {targetVideoExt.ToUpper()}...");
                 await _audioConverter.EnsureFFmpegAsync();
-                await RunFFmpegMergeAsync(tempVideoFile, tempAudioFile, mergedOutputFile);
+                await RunFFmpegMergeAsync(tempVideoFile, tempAudioFileForMerge, mergedOutputFile);
 
-                // Cleanup temp files
                 try
                 {
                     if (File.Exists(tempVideoFile)) File.Delete(tempVideoFile);
-                    if (File.Exists(tempAudioFile)) File.Delete(tempAudioFile);
+                    if (File.Exists(tempAudioFileForMerge)) File.Delete(tempAudioFileForMerge);
                 }
                 catch { }
 
@@ -426,6 +495,43 @@ namespace SpeechToText.Api.Services
                 throw new Exception($"FFmpeg 合并失败 (错误码 {process.ExitCode}): {error}");
             }
             Console.WriteLine("[BilibiliService] FFmpeg 合并完成。");
+        }
+
+        private async Task RunFFmpegConvertAudioAsync(string inputPath, string outputPath)
+        {
+            var ffmpeg = GetFFmpegPath();
+            var arguments = $"-y -i \"{inputPath}\" \"{outputPath}\"";
+
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                Arguments = arguments,
+                RedirectStandardOutput = false,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+            var stdErrBuffer = new System.Text.StringBuilder();
+
+            process.ErrorDataReceived += (sender, e) =>
+            {
+                if (e.Data != null) stdErrBuffer.AppendLine(e.Data);
+            };
+
+            if (!process.Start())
+            {
+                throw new InvalidOperationException("无法调用 FFmpeg 进行音频格式转换。");
+            }
+
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"FFmpeg 音频转换失败: {stdErrBuffer}");
+            }
         }
 
         private async Task DownloadStreamWithProgressAsync(string streamUrl, string outputPath, Action<double> progressCallback)

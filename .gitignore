@@ -9,6 +9,8 @@
 *.sln.docstates
 # Ignore local development configurations that contain keys
 **/appsettings.local.json
+ffmpeg.exe
+yt-dlp.exe
 
 # ==========================================
 # 2. Frontend (Node.js / Vue / Vite)

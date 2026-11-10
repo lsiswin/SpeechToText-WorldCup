@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 
 const props = defineProps({
   file: {
@@ -100,11 +100,24 @@ const isVideo = computed(() => {
   return false; // Remotely streamed audio files from YouTube are not video elements
 });
 
-const fileUrl = computed(() => {
-  if (props.file) {
-    return URL.createObjectURL(props.file);
+const fileUrl = ref('');
+
+watch(() => [props.file, props.srcUrl], ([newFile, newSrcUrl], oldVal) => {
+  const oldFile = oldVal ? oldVal[0] : null;
+  if (oldFile && fileUrl.value && fileUrl.value.startsWith('blob:')) {
+    URL.revokeObjectURL(fileUrl.value);
   }
-  return props.srcUrl;
+  if (newFile) {
+    fileUrl.value = URL.createObjectURL(newFile);
+  } else {
+    fileUrl.value = newSrcUrl || '';
+  }
+}, { immediate: true });
+
+onBeforeUnmount(() => {
+  if (fileUrl.value && fileUrl.value.startsWith('blob:')) {
+    URL.revokeObjectURL(fileUrl.value);
+  }
 });
 
 // Sync play/pause

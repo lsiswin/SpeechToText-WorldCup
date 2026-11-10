@@ -15,8 +15,8 @@ echo Services started:
 echo [Frontend] will run at http://localhost:5173
 echo [Backend]  will run at http://localhost:5000 (Swagger: http://localhost:5000/swagger)
 echo.
-echo Note: The backend will auto-download the Whisper model (140MB)
-echo and FFmpeg on the first run. Please keep internet active.
+echo Note: The backend will auto-download the Whisper model,
+echo FFmpeg and yt-dlp on the first run. Please keep internet active.
 echo ------------------------------------------------------
 echo.
 pause

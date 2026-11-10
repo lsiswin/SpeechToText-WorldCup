@@ -355,16 +355,16 @@ const submitBurnTask = async () => {
   
   try {
     let videoSourceUrl = '';
+    let videoTitle = '';
 
     // Step 1: Handle upload if local file selected
     if (sourceMode.value === 'local') {
       writeLog('检查到本地视频文件。正在上传视频到本地服务器进行预处理...', 'info');
       const formData = new FormData();
       formData.append('file', localFile.value);
-      formData.append('modelType', 'base'); // Warmup model upload format
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/transcription/transcribe'); // Use upload pipeline to save local file to temp directory
+      xhr.open('POST', '/api/transcription/video/upload');
       
       const uploadPromise = new Promise((resolve, reject) => {
         xhr.upload.addEventListener('progress', (e) => {
@@ -379,7 +379,10 @@ const submitBurnTask = async () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const data = JSON.parse(xhr.responseText);
-              resolve(data.fileName || data.FileName);
+              resolve({
+                fileName: data.fileName || data.FileName,
+                originalName: data.originalName || data.OriginalName || (localFile.value?.name ? localFile.value.name.replace(/\.[^/.]+$/, "") : '')
+              });
             } catch (err) {
               reject(new Error('上传响应解析错误'));
             }
@@ -391,7 +394,9 @@ const submitBurnTask = async () => {
       });
 
       xhr.send(formData);
-      videoSourceUrl = await uploadPromise;
+      const uploadResult = await uploadPromise;
+      videoSourceUrl = uploadResult.fileName;
+      videoTitle = uploadResult.originalName;
       writeLog(`本地视频文件上传成功！临时物理文件名: ${videoSourceUrl}`, 'success');
     } else {
       videoSourceUrl = onlineUrl.value.trim();
@@ -407,6 +412,7 @@ const submitBurnTask = async () => {
       },
       body: JSON.stringify({
         videoUrl: videoSourceUrl,
+        title: videoTitle,
         modelType: 'base',
         translateToChinese: translateToChinese.value,
         fontSize: fontSize.value,
@@ -417,7 +423,7 @@ const submitBurnTask = async () => {
     });
 
     if (!startResponse.ok) {
-      const errText = await startResponse.ok;
+      const errText = await startResponse.text();
       throw new Error(errText || '无法启动字幕压制后台任务。');
     }
 
