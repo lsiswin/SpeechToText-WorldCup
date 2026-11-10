@@ -232,11 +232,6 @@
       <div v-else-if="currentView === 'video-burner'" key="video-burner">
         <VideoBurner />
       </div>
-
-      <!-- WORLD CUP PREDICTOR VIEW -->
-      <div v-else-if="currentView === 'world-cup-predictor'" key="world-cup-predictor">
-        <WorldCupPredictor />
-      </div>
     </transition>
   </div>
 </template>
@@ -248,10 +243,9 @@ import OnlineVideoInput from './components/OnlineVideoInput.vue';
 import MediaPlayer from './components/MediaPlayer.vue';
 import TranscriptViewer from './components/TranscriptViewer.vue';
 import VideoBurner from './components/VideoBurner.vue';
-import WorldCupPredictor from './components/WorldCupPredictor.vue';
 
 // State-based Routing
-const currentView = ref('home'); // 'home' | 'local-stt' | 'online-video'
+const currentView = ref('home'); // 'home' | 'local-stt' | 'online-video' | 'video-burner'
 const searchQuery = ref('');
 const activeCategory = ref('all');
 
@@ -261,7 +255,6 @@ const categories = [
   { name: '语音转换', value: 'audio' },
   { name: '媒体提取', value: 'media' },
   { name: '字幕编辑', value: 'edit' },
-  { name: '模拟娱乐', value: 'fun' },
   { name: '开发中占位', value: 'pending' }
 ];
 
@@ -317,19 +310,6 @@ const tools = ref([
     badgeClass: 'badge-purple',
     category: 'edit',
     tags: ['智能字幕', 'DeepSeek翻译', '视频压制'],
-    status: 'active'
-  },
-  {
-    id: 'world-cup-predictor',
-    title: '美加墨世界杯晋级预测',
-    description: '2026年世界杯晋级模拟平台。支持 12 个小组手动对比与积分排行，及 32 强淘汰赛推进生成预测报告。',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:24px;height:24px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5a2 2 0 10-2 2h2zm0 0h4m-4 0H8m4 0v13m0 0H8m4 0h4" /></svg>`,
-    color: '#fbbf24',
-    glow: 'rgba(251, 191, 36, 0.25)',
-    badgeText: 'NEW',
-    badgeClass: 'badge-purple',
-    category: 'fun',
-    tags: ['赛事模拟', '小组积分', '淘汰赛对局'],
     status: 'active'
   }
 ]);
