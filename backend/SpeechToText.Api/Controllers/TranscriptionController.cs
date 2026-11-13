@@ -269,6 +269,35 @@ namespace SpeechToText.Api.Controllers
                 if (!candidates.Contains(fallbackUrl)) candidates.Add(fallbackUrl);
             }
 
+            // High-reliability download for YouTube via yt-dlp (uses OpenSSL to completely bypass Windows Schannel TLS handshake drops on proxy)
+            if (isYoutubeDomain)
+            {
+                foreach (var targetUrl in candidates)
+                {
+                    try
+                    {
+                        var bytes = await _youtubeService.DownloadImageViaYtDlpAsync(targetUrl);
+                        if (bytes != null && bytes.Length > 200)
+                        {
+                            var ct = targetUrl.Contains(".png") ? "image/png"
+                                   : targetUrl.Contains(".webp") ? "image/webp"
+                                   : "image/jpeg";
+                            try
+                            {
+                                await System.IO.File.WriteAllBytesAsync(cachedData, bytes);
+                                await System.IO.File.WriteAllTextAsync(cachedMeta, ct);
+                            }
+                            catch { }
+                            return (bytes, ct);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TranscriptionController] yt-dlp image download failed for {targetUrl}: {ex.Message}");
+                    }
+                }
+            }
+
             Exception? lastEx = null;
 
             for (int attempt = 1; attempt <= 4; attempt++)

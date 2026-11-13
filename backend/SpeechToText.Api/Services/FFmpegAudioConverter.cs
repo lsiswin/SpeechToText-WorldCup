@@ -113,19 +113,26 @@ namespace SpeechToText.Api.Services
             // -ar 16000: set sample rate to 16000Hz (required by Whisper)
             // -ac 1: set audio channels to 1 (mono, required by Whisper)
             // -c:a pcm_s16le: set audio codec to PCM 16-bit little-endian (required by Whisper)
-            var arguments = $"-y -i \"{inputPath}\" -ar 16000 -ac 1 -c:a pcm_s16le \"{outputPath}\"";
-
-            Console.WriteLine($"Running conversion: {_ffmpegPath} {arguments}");
-
             var startInfo = new ProcessStartInfo
             {
                 FileName = _ffmpegPath,
-                Arguments = arguments,
                 RedirectStandardOutput = false,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            startInfo.ArgumentList.Add("-y");
+            startInfo.ArgumentList.Add("-i");
+            startInfo.ArgumentList.Add(inputPath);
+            startInfo.ArgumentList.Add("-ar");
+            startInfo.ArgumentList.Add("16000");
+            startInfo.ArgumentList.Add("-ac");
+            startInfo.ArgumentList.Add("1");
+            startInfo.ArgumentList.Add("-c:a");
+            startInfo.ArgumentList.Add("pcm_s16le");
+            startInfo.ArgumentList.Add(outputPath);
+
+            Console.WriteLine($"Running conversion: {_ffmpegPath} -y -i \"{inputPath}\" -ar 16000 -ac 1 -c:a pcm_s16le \"{outputPath}\"");
 
             using var process = new Process { StartInfo = startInfo };
             

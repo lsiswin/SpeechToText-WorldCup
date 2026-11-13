@@ -186,6 +186,26 @@ namespace SpeechToText.Api.Services
             return "";
         }
 
+        private string? FindCookiesFile()
+        {
+            var configPath = _configuration["YouTube:CookiesFile"];
+            if (!string.IsNullOrWhiteSpace(configPath) && File.Exists(configPath))
+            {
+                return configPath;
+            }
+
+            var baseDirCookie = Path.Combine(AppContext.BaseDirectory, "cookies.txt");
+            if (File.Exists(baseDirCookie)) return baseDirCookie;
+
+            var projectCookie = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "cookies.txt"));
+            if (File.Exists(projectCookie)) return projectCookie;
+
+            var uploadsCookie = Path.Combine(Path.GetTempPath(), "SpeechToTextUploads", "cookies.txt");
+            if (File.Exists(uploadsCookie)) return uploadsCookie;
+
+            return null;
+        }
+
         private void AppendCommonArgs(ProcessStartInfo startInfo)
         {
             var proxy = DetectLocalProxy();
@@ -202,6 +222,79 @@ namespace SpeechToText.Api.Services
                 startInfo.ArgumentList.Add(ffmpegDir);
                 startInfo.WorkingDirectory = ffmpegDir;
             }
+
+            // Enable Node.js JS runtime for YouTube EJS signature and n-challenge deciphering
+            if (IsCommandAvailable("node"))
+            {
+                startInfo.ArgumentList.Add("--js-runtimes");
+                startInfo.ArgumentList.Add("node");
+            }
+
+            // Automatic cookies support
+            var cookiesPath = FindCookiesFile();
+            if (!string.IsNullOrEmpty(cookiesPath))
+            {
+                startInfo.ArgumentList.Add("--cookies");
+                startInfo.ArgumentList.Add(cookiesPath);
+                Console.WriteLine($"[YouTubeService] Using cookies file: {cookiesPath}");
+            }
+            else
+            {
+                var browserName = _configuration["YouTube:CookiesFromBrowser"];
+                if (!string.IsNullOrWhiteSpace(browserName))
+                {
+                    startInfo.ArgumentList.Add("--cookies-from-browser");
+                    startInfo.ArgumentList.Add(browserName);
+                    Console.WriteLine($"[YouTubeService] Using cookies from browser: {browserName}");
+                }
+            }
+        }
+
+        public async Task<byte[]?> DownloadImageViaYtDlpAsync(string imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl)) return null;
+
+            await EnsureYtDlpAsync();
+            var proxy = DetectLocalProxy();
+            var tempFile = Path.Combine(Path.GetTempPath(), $"thumb_{Guid.NewGuid():N}.jpg");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _ytdlpPath!,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            if (!string.IsNullOrWhiteSpace(proxy))
+            {
+                startInfo.ArgumentList.Add("--proxy");
+                startInfo.ArgumentList.Add(proxy);
+            }
+            startInfo.ArgumentList.Add("-o");
+            startInfo.ArgumentList.Add(tempFile);
+            startInfo.ArgumentList.Add(imageUrl);
+
+            try
+            {
+                var (_, _, exitCode) = await ExecuteProcessAsync(startInfo);
+                if (exitCode == 0 && File.Exists(tempFile))
+                {
+                    var bytes = await File.ReadAllBytesAsync(tempFile);
+                    try { File.Delete(tempFile); } catch { }
+                    if (bytes.Length > 0)
+                    {
+                        return bytes;
+                    }
+                }
+                try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[YouTubeService] DownloadImageViaYtDlpAsync failed for {imageUrl}: {ex.Message}");
+            }
+            return null;
         }
 
         public async Task<YouTubeVideoInfo> GetVideoInfoAsync(string videoUrl)
@@ -229,14 +322,55 @@ namespace SpeechToText.Api.Services
             startInfo.ArgumentList.Add("--skip-download");
             startInfo.ArgumentList.Add("--no-warnings");
             AppendCommonArgs(startInfo);
-            startInfo.ArgumentList.Add(videoUrl);
+            startInfo.ArgumentList.Add(videoUrl.Trim());
 
             Console.WriteLine($"[YouTubeService] Fetching metadata via yt-dlp for {videoUrl}...");
             var (stdout, stderr, exitCode) = await ExecuteProcessAsync(startInfo);
 
             if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
             {
-                throw new Exception($"yt-dlp 获取视频信息失败 (退出码 {exitCode}): {stderr}");
+                // Fallback attempt: retry using Android client exclusively if bot detection triggered
+                if (stderr.Contains("Sign in to confirm you're not a bot"))
+                {
+                    Console.WriteLine("[YouTubeService] Bot challenge detected, retrying with android client configuration...");
+                    var fallbackInfo = new ProcessStartInfo
+                    {
+                        FileName = _ytdlpPath!,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    fallbackInfo.ArgumentList.Add("--dump-single-json");
+                    fallbackInfo.ArgumentList.Add("--no-playlist");
+                    fallbackInfo.ArgumentList.Add("--skip-download");
+                    fallbackInfo.ArgumentList.Add("--no-warnings");
+                    var proxy = DetectLocalProxy();
+                    if (!string.IsNullOrEmpty(proxy))
+                    {
+                        fallbackInfo.ArgumentList.Add("--proxy");
+                        fallbackInfo.ArgumentList.Add(proxy);
+                    }
+                    fallbackInfo.ArgumentList.Add("--extractor-args");
+                    fallbackInfo.ArgumentList.Add("youtube:player_client=android");
+                    fallbackInfo.ArgumentList.Add(videoUrl.Trim());
+
+                    var (fbStdout, fbStderr, fbCode) = await ExecuteProcessAsync(fallbackInfo);
+                    if (fbCode == 0 && !string.IsNullOrWhiteSpace(fbStdout))
+                    {
+                        stdout = fbStdout;
+                    }
+                    else
+                    {
+                        throw new Exception($"yt-dlp 获取视频信息失败 (退出码 {exitCode}): {stderr}");
+                    }
+                }
+                else
+                {
+                    throw new Exception($"yt-dlp 获取视频信息失败 (退出码 {exitCode}): {stderr}");
+                }
             }
 
             using var doc = JsonDocument.Parse(stdout);
@@ -275,6 +409,36 @@ namespace SpeechToText.Api.Services
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(thumbnail))
+            {
+                // Asynchronously pre-cache the thumbnail into local disk cache
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var cacheFolder = Path.Combine(Path.GetTempPath(), "SpeechToTextUploads", "ImageCache");
+                        if (!Directory.Exists(cacheFolder)) Directory.CreateDirectory(cacheFolder);
+
+                        var urlHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(thumbnail)));
+                        var cachedMeta = Path.Combine(cacheFolder, $"{urlHash}.meta");
+                        var cachedData = Path.Combine(cacheFolder, $"{urlHash}.bin");
+
+                        if (!File.Exists(cachedData))
+                        {
+                            var bytes = await DownloadImageViaYtDlpAsync(thumbnail);
+                            if (bytes != null && bytes.Length > 0)
+                            {
+                                await File.WriteAllBytesAsync(cachedData, bytes);
+                                var ct = thumbnail.Contains(".png") ? "image/png" : thumbnail.Contains(".webp") ? "image/webp" : "image/jpeg";
+                                await File.WriteAllTextAsync(cachedMeta, ct);
+                                Console.WriteLine($"[YouTubeService] Pre-cached thumbnail successfully ({bytes.Length} bytes).");
+                            }
+                        }
+                    }
+                    catch { }
+                });
+            }
+
             return new YouTubeVideoInfo
             {
                 Title = title,
@@ -282,7 +446,7 @@ namespace SpeechToText.Api.Services
                 DurationSeconds = duration,
                 ThumbnailUrl = thumbnail,
                 AvatarUrl = avatarUrl,
-                Url = videoUrl
+                Url = videoUrl.Trim()
             };
         }
 
@@ -430,17 +594,17 @@ namespace SpeechToText.Api.Services
                     }
                     else if (quality.Equals("1080p", StringComparison.OrdinalIgnoreCase))
                     {
-                        format = "bv*[height<=1080]+ba/b[height<=1080]/b";
+                        format = "bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=1280]+ba/bv*+ba/b";
                         tracker.UpdateProgress(taskId, 10, $"已解析: 《{info.Title}》，准备下载 1080P 全高清视频轨...");
                     }
                     else if (quality.Equals("720p", StringComparison.OrdinalIgnoreCase))
                     {
-                        format = "bv*[height<=720]+ba/b[height<=720]/b";
+                        format = "bv*[height<=720]+ba/b[height<=720]/bv*[height<=1280]+ba/bv*+ba/b";
                         tracker.UpdateProgress(taskId, 10, $"已解析: 《{info.Title}》，准备下载 720P 高清视频轨...");
                     }
                     else
                     {
-                        format = "bv*[height<=480]+ba/b[height<=480]/b";
+                        format = "bv*[height<=480]+ba/b[height<=480]/bv*+ba/b";
                         tracker.UpdateProgress(taskId, 10, $"已解析: 《{info.Title}》，准备下载 480P 流畅视频轨...");
                     }
 
@@ -456,10 +620,10 @@ namespace SpeechToText.Api.Services
                     AppendCommonArgs(startInfo);
                     startInfo.ArgumentList.Add("-o");
                     startInfo.ArgumentList.Add(outputTemplate);
-                    startInfo.ArgumentList.Add(videoUrl);
+                    startInfo.ArgumentList.Add(videoUrl.Trim());
                 }
 
-                Console.WriteLine($"[YouTubeService] Starting yt-dlp download task: {startInfo.FileName} for {videoUrl}");
+                Console.WriteLine($"[YouTubeService] Starting yt-dlp download task: {startInfo.FileName} for {videoUrl.Trim()}");
 
                 using var process = new Process { StartInfo = startInfo };
                 var stdErrBuffer = new StringBuilder();
@@ -539,6 +703,10 @@ namespace SpeechToText.Api.Services
                 if (process.ExitCode != 0)
                 {
                     var error = stdErrBuffer.ToString();
+                    if (error.Contains("Sign in to confirm you're not a bot"))
+                    {
+                        throw new Exception("YouTube 触发了防机器人验证。建议在程序根目录放置 cookies.txt，或配置本地浏览器 Cookie (--cookies-from-browser edge) 后重试。详细信息: " + error);
+                    }
                     throw new Exception($"yt-dlp 媒体下载合并失败 (退出码 {process.ExitCode}): {error}");
                 }
 

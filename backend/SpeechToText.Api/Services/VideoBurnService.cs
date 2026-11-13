@@ -322,20 +322,31 @@ namespace SpeechToText.Api.Services
             // -c:v libx264: Re-encode video stream
             // -preset fast -crf 23: Balance encoding quality and speed
             // -c:a copy: Directly copy audio stream
-            var arguments = $"-y -i \"{videoPath}\" -vf \"subtitles='{relativeAssFilename}'\" -c:v libx264 -preset fast -crf 23 -c:a copy \"{outputPath}\"";
-
-            Console.WriteLine($"[VideoBurnService] Running FFmpeg Burner: {ffmpeg} {arguments}");
-
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffmpeg,
-                Arguments = arguments,
-                WorkingDirectory = AppContext.BaseDirectory,
+                WorkingDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 RedirectStandardOutput = false,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            startInfo.ArgumentList.Add("-y");
+            startInfo.ArgumentList.Add("-i");
+            startInfo.ArgumentList.Add(videoPath);
+            startInfo.ArgumentList.Add("-vf");
+            startInfo.ArgumentList.Add($"subtitles='{relativeAssFilename}'");
+            startInfo.ArgumentList.Add("-c:v");
+            startInfo.ArgumentList.Add("libx264");
+            startInfo.ArgumentList.Add("-preset");
+            startInfo.ArgumentList.Add("fast");
+            startInfo.ArgumentList.Add("-crf");
+            startInfo.ArgumentList.Add("23");
+            startInfo.ArgumentList.Add("-c:a");
+            startInfo.ArgumentList.Add("copy");
+            startInfo.ArgumentList.Add(outputPath);
+
+            Console.WriteLine($"[VideoBurnService] Running FFmpeg Burner: {ffmpeg} -i {videoPath} -vf subtitles='{relativeAssFilename}' -c:v libx264 {outputPath}");
 
             using var process = new System.Diagnostics.Process { StartInfo = startInfo };
             var stdErrBuffer = new System.Text.StringBuilder();
